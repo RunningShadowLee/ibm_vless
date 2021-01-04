@@ -7,11 +7,11 @@
 # See /LICENSE for more information.
 #
 
-name: IBM Cloud Foundry - V2Ray
+name: IBM Cloud Foundry - Xtls
 
 env:
   IBM_CF_API: https://api.us-south.cf.cloud.ibm.com
-  IBM_CF_APP_MEM: 128M
+  IBM_CF_APP_MEM: 256M
 
 on:
   workflow_dispatch:
@@ -52,86 +52,180 @@ jobs:
 
     - name: Download Latest V2Ray
       run: |
-        DOWNLOAD_URL="https://github.com/v2fly/v2ray-core/releases/latest/download/v2ray-linux-64.zip"
+        DOWNLOAD_URL="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"
         curl -fsSL "$DOWNLOAD_URL" -o "latest-v2ray.zip"
-        unzip latest-v2ray.zip v2ray v2ctl geoip.dat geosite.dat
+        unzip latest-v2ray.zip xray geoip.dat geosite.dat
         rm latest-v2ray.zip
-        chmod -v 755 v2*
-        ./v2ray -version
-        mv v2ray ${IBM_CF_APP_NAME}
+        chmod -v 755 xray
+        ./xray -version
+        mv xray ${IBM_CF_APP_NAME}
 
-    - name: Generate V2Ray Config File (VMess)
-      if: ${{ env.V2_WS_PATH_VMESS }}
-      run: |
-        base64 << P3TERX > config
-        {
-          "log": {
-            "access": "none",
-            "loglevel": "error"
-          },
-          "inbounds": [
-            {
-              "port": 8080,
-              "protocol": "vmess",
-              "settings": {
-                "clients": [
-                  {
-                    "id": "${V2_UUID}",
-                    "alterId": 64
-                  }
-                ]
-              },
-              "streamSettings": {
-                "network":"ws",
-                "wsSettings": {
-                  "path": "${V2_WS_PATH_VMESS}"
-                }
-              }
-            }
-          ],
-          "outbounds": [
-            {
-              "protocol": "freedom"
-            }
-          ]
-        }
-        P3TERX
-
+   
     - name: Generate V2Ray Config File (VLESS)
-      if: ${{ env.V2_WS_PATH_VLESS }}
+     # if: ${{ env.V2_WS_PATH_VLESS }}
       run: |
         base64 << P3TERX > config
+         {
+    "log": {
+        "access": "none",
+        "loglevel": "error"
+    },
+    "inbounds": [
         {
-          "log": {
-            "access": "none",
-            "loglevel": "error"
-          },
-          "inbounds": [
-            {
-              "port": 8080,
-              "protocol": "vless",
-              "settings": {
-                "decryption": "none",
+            "port": 443,
+            "protocol": "vless",
+            "settings": {
                 "clients": [
-                  {
-                    "id": "${V2_UUID}"
-                  }
+                    {
+                        "id": "${V2_UUID}", // 填写你的 UUID
+                        "flow": "xtls-rprx-direct",
+                        "level": 0,
+                        "email": "love@example.com"
+                    }
+                ],
+                "decryption": "none",
+                "fallbacks": [
+                    {
+                        "dest": 1310, // 默认回落到 Xray 的 Trojan 协议
+                        "xver": 1
+                    },
+                    {
+                        "path": "websocket1", // 必须换成自定义的 PATH
+                        "dest": 1234,
+                        "xver": 1
+                    },
+                    {
+                        "path": "vmesstcp1", // 必须换成自定义的 PATH
+                        "dest": 2345,
+                        "xver": 1
+                    },
+                    {
+                        "path": "vmessws1", // 必须换成自定义的 PATH
+                        "dest": 3456,
+                        "xver": 1
+                    }
                 ]
-              },
-              "streamSettings": {
-                "network":"ws",
-                "wsSettings": {
-                  "path": "${V2_WS_PATH_VLESS}"
+            },
+            "streamSettings": {
+                "network": "tcp",
+                "security": "xtls",
+                "xtlsSettings": {
+                    "alpn": [
+                        "http/1.1"
+                    ],
+                    "certificates": [
+                        
+                    ]
                 }
-              }
             }
-          ],
-          "outbounds": [
-            {
-              "protocol": "freedom"
+        },
+        {
+            "port": 1310,
+            "listen": "127.0.0.1",
+            "protocol": "trojan",
+            "settings": {
+                "clients": [
+                    {
+                        "password": "nsjb1zgjsb", // 填写你的密码
+                        "level": 0,
+                        "email": "love@example.com"
+                    }
+                ],
+                "fallbacks": [
+                    {
+                        "dest": 80 // 或者回落到其它也防探测的代理
+                    }
+                ]
+            },
+            "streamSettings": {
+                "network": "tcp",
+                "security": "none",
+                "tcpSettings": {
+                    "acceptProxyProtocol": true
+                }
             }
-          ]
+        },
+        {
+            "port": 1234,
+            "listen": "127.0.0.1",
+            "protocol": "vless",
+            "settings": {
+                "clients": [
+                    {
+                        "id": "${V2_UUID}", // 填写你的 UUID
+                        "level": 0,
+                        "email": "love@example.com"
+                    }
+                ],
+                "decryption": "none"
+            },
+            "streamSettings": {
+                "network": "ws",
+                "security": "none",
+                "wsSettings": {
+          #          "acceptProxyProtocol": true, // 提醒：若你用 Nginx/Caddy 等反代 WS，需要删掉这行
+                    "path": "websocket1" // 必须换成自定义的 PATH，需要和分流的一致
+                }
+            }
+        },
+        {
+            "port": 2345,
+            "listen": "127.0.0.1",
+            "protocol": "vmess",
+            "settings": {
+                "clients": [
+                    {
+                        "id": "${V2_UUID}", // 填写你的 UUID
+                        "level": 0,
+                        "email": "love@example.com"
+                    }
+                ]
+            },
+            "streamSettings": {
+                "network": "tcp",
+                "security": "none",
+                "tcpSettings": {
+                    "acceptProxyProtocol": true,
+                    "header": {
+                        "type": "http",
+                        "request": {
+                            "path": [
+                                "vmesstcp1" // 必须换成自定义的 PATH，需要和分流的一致
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "port": 3456,
+            "listen": "127.0.0.1",
+            "protocol": "vmess",
+            "settings": {
+                "clients": [
+                    {
+                        "id": "${V2_UUID}", // 填写你的 UUID
+                        "level": 0,
+                        "email": "love@example.com"
+                    }
+                ]
+            },
+            "streamSettings": {
+                "network": "ws",
+                "security": "none",
+                "wsSettings": {
+            #        "acceptProxyProtocol": true, // 提醒：若你用 Nginx/Caddy 等反代 WS，需要删掉这行
+                    "path": "vmessws1" // 必须换成自定义的 PATH，需要和分流的一致
+                }
+            }
         }
+    ],
+    "outbounds": [
+        {
+            "protocol": "freedom"
+        }
+    ]
+}
         P3TERX
 
     - name: Generate Manifest File
@@ -148,3 +242,5 @@ jobs:
 
     - name: Deploy Cloud Foundry App
       run: cf push
+
+
